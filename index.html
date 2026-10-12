@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Ejecutivo de Adherencia a la Secuencia</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563EB',
+                        success: '#10B981',
+                        warning: '#F59E0B',
+                        danger: '#EF4444',
+                        secondary: '#64748B',
+                        dark: '#1e293b',
+                        light: '#f8fafc'
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body { background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); padding: 1.25rem; transition: all 0.3s ease; }
+        .card:hover { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
+        .kpi-value { font-size: 1.875rem; font-weight: 700; color: #1e293b; }
+        .kpi-label { font-size: 0.875rem; color: #64748B; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+        .glass-header { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border-bottom: 1px solid #e2e8f0; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .table-container { max-height: 400px; overflow-y: auto; }
+        th { position: sticky; top: 0; background: #f8fafc; z-index: 10; }
+        
+        #loading { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 50; justify-content: center; align-items: center; flex-direction: column; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #2563EB; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .heatmap-cell { padding: 8px; text-align: center; border-radius: 4px; color: white; font-weight: 500; font-size: 0.8rem; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <div id="loading">
+        <div class="spinner mb-4"></div>
+        <p class="text-lg font-semibold text-primary" id="loadingText">Procesando archivo...</p>
+    </div>
+
+    <header class="glass-header px-6 py-4 flex justify-between items-center z-20 shrink-0">
+        <div class="flex items-center gap-3">
+            <i data-lucide="layout-dashboard" class="text-primary w-8 h-8"></i>
+            <div>
+                <h1 class="text-2xl font-bold text-dark">Dashboard Ejecutivo</h1>
+                <p class="text-sm text-secondary">Adherencia a la Secuencia de Rutas</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <label class="cursor-pointer bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2">
+                <i data-lucide="upload" class="w-4 h-4"></i>
+                Seleccionar archivo Excel
+                <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" class="hidden" multiple>
+            </label>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50" id="main-container" style="display: none;">
+        
+        <div class="card p-4 flex flex-wrap gap-4 items-end bg-white">
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-semibold text-secondary mb-1">Zona / DC</label>
+                <select id="filterZone" class="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 border focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-semibold text-secondary mb-1">Mes</label>
+                <select id="filterMonth" class="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 border outline-none">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-semibold text-secondary mb-1">Fecha Inicio</label>
+                <input type="date" id="filterDateStart" class="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 border outline-none">
+            </div>
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-semibold text-secondary mb-1">Fecha Fin</label>
+                <input type="date" id="filterDateEnd" class="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 border outline-none">
+            </div>
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-semibold text-secondary mb-1">Vendedor / Conductor</label>
+                <select id="filterDriver" class="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 border outline-none">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-semibold text-secondary mb-1">Ruta</label>
+                <select id="filterRoute" class="w-full border-gray-300 rounded-md shadow-sm text-sm p-2 border outline-none">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+            <button id="btnApplyFilters" class="bg-secondary hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">
+                Aplicar Filtros
+            </button>
+        </div>
+
+        <div class="bg-blue-50 border-l-4 border-primary p-4 rounded-r-lg shadow-sm">
+            <div class="flex items-start gap-3">
+                <i data-lucide="lightbulb" class="text-primary mt-1"></i>
+                <div>
+                    <h3 class="font-bold text-primary">Insights Automáticos</h3>
+                    <ul id="insightsList" class="text-sm mt-2 space-y-1 text-slate-700 list-disc ml-4">
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Adherencia</span><i data-lucide="target" class="w-4 h-4 text-primary"></i></div>
+                <div class="kpi-value text-primary" id="kpiAdherencia">0%</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Cumplimiento</span><i data-lucide="check-circle" class="w-4 h-4 text-success"></i></div>
+                <div class="kpi-value text-success" id="kpiCumplimiento">0%</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Total Rutas</span><i data-lucide="map" class="w-4 h-4 text-secondary"></i></div>
+                <div class="kpi-value" id="kpiRutas">0</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Total Visitas</span><i data-lucide="users" class="w-4 h-4 text-secondary"></i></div>
+                <div class="kpi-value" id="kpiVisitasTotales">0</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Visitados</span><i data-lucide="user-check" class="w-4 h-4 text-success"></i></div>
+                <div class="kpi-value" id="kpiVisitasEjecutadas">0</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Omitidos</span><i data-lucide="user-x" class="w-4 h-4 text-danger"></i></div>
+                <div class="kpi-value text-danger" id="kpiVisitasOmitidas">0</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Fuera Secuencia</span><i data-lucide="alert-triangle" class="w-4 h-4 text-warning"></i></div>
+                <div class="kpi-value text-warning" id="kpiFueraSecuencia">0</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">Paradas No Plan.</span><i data-lucide="alert-octagon" class="w-4 h-4 text-danger"></i></div>
+                <div class="kpi-value text-danger" id="kpiParadasNoPlan">0</div>
+            </div>
+            <div class="card flex flex-col justify-between">
+                <div class="text-secondary mb-2 flex justify-between"><span class="kpi-label">T. Promedio</span><i data-lucide="clock" class="w-4 h-4 text-secondary"></i></div>
+                <div class="kpi-value text-lg" id="kpiTiempoPromedio">0h</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="card flex flex-col items-center justify-center col-span-1">
+                <h3 class="w-full font-bold text-dark mb-4 text-center">Adherencia Global</h3>
+                <div class="relative w-full max-w-[250px] aspect-[2/1]">
+                    <canvas id="gaugeAdherencia"></canvas>
+                    <div class="absolute bottom-0 left-0 w-full text-center pb-2">
+                        <span class="text-3xl font-bold" id="gaugeValue">0%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card col-span-1 lg:col-span-2">
+                <h3 class="font-bold text-dark mb-4">Tendencia de Adherencia (Diaria)</h3>
+                <div class="h-64 w-full">
+                    <canvas id="chartTendencia"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <section class="card" id="seccionMensual">
+            <div class="flex flex-wrap justify-between items-start gap-4 mb-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="calendar-range" class="w-5 h-5 text-primary"></i>
+                    <div>
+                        <h3 class="font-bold text-dark text-lg">Adherencia Mensual</h3>
+                        <p class="text-xs text-secondary">Promedio de adherencia por mes · línea punteada = meta 85%</p>
+                    </div>
+                </div>
+                <div class="inline-flex rounded-lg border border-slate-200 p-1 bg-slate-50 text-sm" role="group">
+                    <button type="button" data-month-mode="global" class="month-mode-btn px-3 py-1 rounded-md">Global</button>
+                    <button type="button" data-month-mode="zona" class="month-mode-btn px-3 py-1 rounded-md">Por Zona</button>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <div class="xl:col-span-2 h-80 w-full">
+                    <canvas id="chartMensual"></canvas>
+                </div>
+                <div class="overflow-y-auto max-h-80 rounded-lg border border-slate-200">
+                    <table class="w-full text-sm">
+                        <thead class="text-xs text-secondary uppercase bg-slate-50 border-b">
+                            <tr>
+                                <th class="px-3 py-2 text-left">Mes</th>
+                                <th class="px-3 py-2 text-right">Rutas</th>
+                                <th class="px-3 py-2 text-right">Adher.</th>
+                                <th class="px-3 py-2 text-right">Cumpl.</th>
+                                <th class="px-3 py-2 text-right">Var.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaMensualBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="card">
+                <h3 class="font-bold text-dark mb-4">Top 10 Fuera de Secuencia (por Ruta)</h3>
+                <div class="h-64 w-full">
+                    <canvas id="chartFueraSecuencia"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="font-bold text-dark mb-4">Top 10 Paradas No Planificadas (por Ruta)</h3>
+                <div class="h-64 w-full">
+                    <canvas id="chartParadas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="card">
+                <h3 class="font-bold text-dark mb-4">Top 10 Rutas (Adherencia)</h3>
+                <div class="h-64 overflow-y-auto pr-2" id="top10List"></div>
+            </div>
+            <div class="card">
+                <h3 class="font-bold text-dark mb-4">Bottom 10 Rutas (Adherencia)</h3>
+                <div class="h-64 overflow-y-auto pr-2" id="bottom10List"></div>
+            </div>
+            <div class="card flex flex-col items-center">
+                <h3 class="w-full font-bold text-dark mb-4">Desglose de Visitas</h3>
+                <div class="h-64 w-full flex justify-center">
+                    <canvas id="chartDonut"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="card">
+                <h3 class="font-bold text-dark mb-4">Heatmap Adherencia (Zona x Día Semana)</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full border-collapse" id="heatmapTable">
+                        <thead>
+                            <tr class="bg-slate-50 text-secondary text-sm" id="heatmapHead"></tr>
+                        </thead>
+                        <tbody id="heatmapBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="font-bold text-dark mb-4">Cumplimiento vs Adherencia por Fecha</h3>
+                <div class="h-64 w-full">
+                    <canvas id="chartComparativo"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-dark">Detalle de Rutas</h3>
+                <div class="relative">
+                    <i data-lucide="search" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4"></i>
+                    <input type="text" id="tableSearch" placeholder="Buscar ruta o vendedor..." class="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:border-primary">
+                </div>
+            </div>
+            <div class="table-container rounded-lg border border-slate-200">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs text-secondary uppercase bg-slate-50 border-b">
+                        <tr>
+                            <th class="px-4 py-3 cursor-pointer hover:bg-slate-100" data-sort="date">Fecha <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 cursor-pointer hover:bg-slate-100" data-sort="zone">Zona <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 cursor-pointer hover:bg-slate-100" data-sort="route">Ruta <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 cursor-pointer hover:bg-slate-100" data-sort="driver">Vendedor <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 text-right cursor-pointer hover:bg-slate-100" data-sort="visits">Visitas <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 text-right cursor-pointer hover:bg-slate-100" data-sort="adherence">Adherencia <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 text-right cursor-pointer hover:bg-slate-100" data-sort="compliance">Cumplimiento <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 text-right cursor-pointer hover:bg-slate-100" data-sort="notAdhered">Fuera Sec. <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                            <th class="px-4 py-3 text-right cursor-pointer hover:bg-slate-100" data-sort="unplannedStops">Paradas No Plan. <i data-lucide="arrow-up-down" class="inline w-3 h-3"></i></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-100">
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-4 flex justify-between items-center text-sm text-secondary">
+                <span id="tableInfo">Mostrando 0 registros</span>
+                <div class="flex gap-2">
+                    <button id="btnPrevPage" class="px-3 py-1 border rounded hover:bg-slate-50 disabled:opacity-50">Anterior</button>
+                    <span id="pageInfo" class="px-3 py-1">Página 1</span>
+                    <button id="btnNextPage" class="px-3 py-1 border rounded hover:bg-slate-50 disabled:opacity-50">Siguiente</button>
+                </div>
+            </div>
+        </div>
+        
+    </main>
+
+    <div id="emptyState" class="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+        <i data-lucide="bar-chart-2" class="w-24 h-24 mb-4 text-slate-300"></i>
+        <h2 class="text-xl font-semibold text-slate-600 mb-2">Ningún archivo cargado</h2>
+        <p class="text-sm">Selecciona uno o varios archivos Excel (.xlsx, .xls, .csv) para generar el dashboard. Si eliges varios (p. ej. uno por mes), se combinan.</p>
+        <label class="mt-6 cursor-pointer bg-primary hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow-md transition-colors flex items-center gap-2">
+            <i data-lucide="upload" class="w-5 h-5"></i>
+            Seleccionar archivo Excel
+            <input type="file" id="fileInputEmpty" accept=".xlsx, .xls, .csv" class="hidden" multiple>
+        </label>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+
+        let rawData = [];
+        let filteredData = [];
+        let tableData = [];
+
+        const colMap = {
+            date: ['Planned Route Start Date', 'Fecha', 'Date', 'Fecha Planificada', 'Start Date', 'Día', 'Route Date', 'Actual Route Departure Time'],
+            zone: ['DC Name', 'Zona', 'Sucursal', 'Region', 'Supervisor', 'Agencia', 'Base'],
+            route: ['Route Name', 'Route ID', 'Ruta', 'Codigo Ruta', 'Route'],
+            driver: ['Driver Name', 'Vendedor', 'Conductor', 'Repartidor', 'Driver ID', 'Chofer'],
+            adherence: ['Sequence Adherence', 'Adherencia', 'Adherence', 'Secuencia'],
+            totalVisits: ['Imported Customers Count', 'Total Customers', 'Visitas Totales', 'Clientes', 'Programadas', 'Total Visitas'],
+            visited: ['Total Customers Clicked', 'Successful Customers Count', 'Total Visited Customers Count', 'Visitas Ejecutadas', 'Visitados', 'Realizadas', 'Ejecutadas', 'Visitas Efectivas'],
+            unvisited: ['Total Unvisited Customers Count', 'Visitas Omitidas', 'No Visitados', 'Pendientes', 'Omitidas'],
+            notAdhered: ['Total Sequence Not Adhered Clicks', 'Fuera de Secuencia', 'Desviaciones', 'No Adheridas'],
+            unplannedStops: ['Total Unauthorized Stops Count', 'Paradas No Autorizadas', 'Paradas No Planificadas', 'Unauthorized Stops'],
+            journeyTime: ['Total Journey Seconds', 'Tiempo Total', 'Duracion', 'Journey Time']
+        };
+
+        let currentPage = 1;
+        const rowsPerPage = 50;
+        let currentSort = { col: 'date', dir: 'desc' };
+        // Columnas de la tabla que no coinciden con el nombre del campo
+        const sortFieldMap = { date: 'ts', visits: 'visited' };
+
+        const fileInputs = [document.getElementById('fileInput'), document.getElementById('fileInputEmpty')];
+        const loading = document.getElementById('loading');
+        const loadingText = document.getElementById('loadingText');
+        const mainContainer = document.getElementById('main-container');
+        const emptyState = document.getElementById('emptyState');
+
+        fileInputs.forEach(input => {
+            input.addEventListener('change', handleFileUpload);
+        });
+
+        document.getElementById('btnApplyFilters').addEventListener('click', () => withLoading('Aplicando filtros...', applyFilters));
+
+        let searchTimer = null;
+        document.getElementById('tableSearch').addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => { currentPage = 1; renderTable(); }, 200);
+        });
+
+        document.querySelectorAll('th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                const col = th.dataset.sort;
+                if (currentSort.col === col) {
+                    currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.col = col;
+                    currentSort.dir = 'desc';
+                }
+                renderTable();
+            });
+        });
+
+        document.getElementById('btnPrevPage').addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderTablePage(); } });
+        document.getElementById('btnNextPage').addEventListener('click', () => {
+            const maxPage = Math.ceil(tableData.length / rowsPerPage);
+            if (currentPage < maxPage) { currentPage++; renderTablePage(); }
+        });
+
+        // Deja que el navegador pinte (p. ej. el spinner) antes de seguir con trabajo pesado
+        // (con tope de tiempo: requestAnimationFrame no se dispara si la pestaña está en segundo plano)
+        const nextFrame = () => new Promise(r => {
+            let done = false;
+            const finish = () => { if (!done) { done = true; r(); } };
+            requestAnimationFrame(() => setTimeout(finish, 0));
+            setTimeout(finish, 50);
+        });
+
+        async function withLoading(text, fn) {
+            loadingText.innerText = text;
+            loading.style.display = 'flex';
+            await nextFrame();
+            try { fn(); } finally { loading.style.display = 'none'; }
+        }
+
+        function escapeHtml(v) {
+            return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        // ---------- Lectura del archivo ----------
+
+        // Autocontenida: se serializa y se ejecuta dentro de un Web Worker
+        // (también sirve como respaldo en el hilo principal).
+        function parseWorkbook(buffer, colMap) {
+            const wb = XLSX.read(new Uint8Array(buffer), {
+                type: 'array', cellFormula: false, cellHTML: false, cellText: false, cellStyles: false, cellNF: false
+            });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            // header:1 devuelve arreglos en lugar de objetos: mucho menos memoria con hojas anchas
+            const rowsArr = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: false });
+            if (rowsArr.length < 2) return { rows: [] };
+
+            const headers = rowsArr[0].map(h => h == null ? '' : String(h).toLowerCase().trim());
+            const findColumn = names => {
+                for (const n of names) {
+                    const i = headers.indexOf(n.toLowerCase().trim());
+                    if (i >= 0) return i;
+                }
+                for (const n of names) {
+                    const nl = n.toLowerCase();
+                    const i = headers.findIndex(h => h && h.includes(nl));
+                    if (i >= 0) return i;
+                }
+                return -1;
+            };
+
+            const idx = {};
+            for (const k in colMap) idx[k] = findColumn(colMap[k]);
+
+            const num = (r, k) => {
+                if (idx[k] < 0) return 0;
+                const v = parseFloat(r[idx[k]]);
+                return isNaN(v) ? 0 : v;
+            };
+            const str = (r, k, def) => {
+                if (idx[k] < 0) return def;
+                const v = r[idx[k]];
+                return v ? String(v) : def;
+            };
+
+            const rows = [];
+            let maxAdh = 0;
+            for (let i = 1; i < rowsArr.length; i++) {
+                const r = rowsArr[i];
+                if (!r || r.length === 0) continue;
+
+                const dv = idx.date >= 0 ? r[idx.date] : null;
+                let ts = NaN, date = 'Sin Fecha', month = null, dow = -1;
+                if (dv !== null && dv !== undefined && dv !== '') {
+                    const d = typeof dv === 'number' ? new Date(Math.round((dv - 25569) * 86400000)) : new Date(dv);
+                    ts = d.getTime();
+                    if (!isNaN(ts)) {
+                        date = d.toISOString().slice(0, 10);
+                        month = date.slice(0, 7);
+                        dow = d.getUTCDay();
+                    } else {
+                        date = String(dv).split(' ')[0];
+                    }
+                }
+
+                const zone = str(r, 'zone', 'General');
+                const route = str(r, 'route', 'Desconocida');
+                const driver = str(r, 'driver', 'Desconocido');
+                const adherence = num(r, 'adherence');
+                const totalVisits = num(r, 'totalVisits');
+                const visited = num(r, 'visited');
+                if (adherence > maxAdh) maxAdh = adherence;
+
+                rows.push({
+                    date, ts, valid: !isNaN(ts), month, dow,
+                    zone, route, driver,
+                    adherence, totalVisits, visited,
+                    unvisited: num(r, 'unvisited'),
+                    notAdhered: num(r, 'notAdhered'),
+                    unplannedStops: num(r, 'unplannedStops'),
+                    journeyTime: num(r, 'journeyTime'),
+                    compliance: totalVisits > 0 ? visited / totalVisits : 0,
+                    search: (route + '\u0001' + driver + '\u0001' + zone).toLowerCase()
+                });
+            }
+
+            if (maxAdh > 0 && maxAdh <= 1.05) {
+                for (const d of rows) d.adherence *= 100;
+            }
+            return { rows };
+        }
+
+        function parseInWorker(buffer) {
+            return new Promise((resolve, reject) => {
+                let worker, url;
+                const cleanup = () => { if (worker) worker.terminate(); if (url) URL.revokeObjectURL(url); };
+                try {
+                    const src = `importScripts(${JSON.stringify(XLSX_URL)});
+${parseWorkbook.toString()}
+self.onmessage = e => {
+    try { self.postMessage({ ok: true, result: parseWorkbook(e.data.buffer, e.data.colMap) }); }
+    catch (err) { self.postMessage({ ok: false, error: String((err && err.message) || err) }); }
+};`;
+                    url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+                    worker = new Worker(url);
+                    worker.onmessage = e => {
+                        cleanup();
+                        if (e.data.ok) return resolve(e.data.result);
+                        const err = new Error(e.data.error);
+                        err.parseError = true;
+                        reject(err);
+                    };
+                    worker.onerror = err => { cleanup(); reject(err); };
+                    worker.postMessage({ buffer, colMap });
+                } catch (err) {
+                    cleanup();
+                    reject(err);
+                }
+            });
+        }
+
+        function showEmpty(msg) {
+            if (msg) alert(msg);
+            loading.style.display = 'none';
+            mainContainer.style.display = 'none';
+            emptyState.style.display = 'flex';
+        }
+
+        async function handleFileUpload(e) {
+            const input = e.target;
+            const files = [...input.files];
+            if (files.length === 0) return;
+
+            loadingText.innerText = 'Leyendo archivo...';
+            loading.style.display = 'flex';
+            emptyState.style.display = 'none';
+            mainContainer.style.display = 'none';
+            await nextFrame();
+
+            const rows = [];
+            let useWorker = true;
+            let currentFile = files[0];
+            try {
+                for (let i = 0; i < files.length; i++) {
+                    currentFile = files[i];
+                    loadingText.innerText = files.length > 1
+                        ? `Procesando archivo ${i + 1} de ${files.length}: ${currentFile.name}`
+                        : 'Procesando datos...';
+                    const buffer = await currentFile.arrayBuffer();
+                    let result;
+                    try {
+                        if (!useWorker) throw new Error('worker desactivado');
+                        result = await parseInWorker(buffer);
+                    } catch (err) {
+                        if (err && err.parseError) throw err;
+                        // Worker no disponible (p. ej. sin conexión al CDN desde el worker): usar hilo principal
+                        if (useWorker) console.warn('Web Worker no disponible, procesando en el hilo principal.', err);
+                        useWorker = false;
+                        await nextFrame();
+                        result = parseWorkbook(buffer, colMap);
+                    }
+                    for (const r of result.rows) rows.push(r);
+                }
+            } catch (error) {
+                console.error(error);
+                showEmpty(`Error leyendo el archivo "${currentFile.name}". Verifica el formato.`);
+                return;
+            } finally {
+                input.value = ''; // permite volver a cargar el mismo archivo
+            }
+
+            rawData = rows;
+            if (rawData.length === 0) {
+                showEmpty('El archivo está vacío o no se detectaron datos válidos.');
+                return;
+            }
+
+            loadingText.innerText = 'Generando dashboard...';
+            mainContainer.style.display = 'block';
+            await nextFrame();
+
+            try {
+                populateFilters();
+                applyFilters();
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // ---------- Filtros ----------
+
+        function populateFilters() {
+            const zones = new Set(), drivers = new Set(), routes = new Set(), months = new Set();
+            let minDate = null, maxDate = null;
+            for (const d of rawData) {
+                if (d.month) months.add(d.month);
+                zones.add(d.zone);
+                drivers.add(d.driver);
+                routes.add(d.route);
+                if (d.valid) {
+                    if (minDate === null || d.date < minDate) minDate = d.date;
+                    if (maxDate === null || d.date > maxDate) maxDate = d.date;
+                }
+            }
+
+            // Una sola asignación de innerHTML por select (antes: innerHTML += en bucle, O(n²))
+            const fillSelect = (id, set, allLabel) => {
+                const options = [...set].filter(Boolean).sort()
+                    .map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`);
+                document.getElementById(id).innerHTML = `<option value="">${allLabel}</option>` + options.join('');
+            };
+
+            fillSelect('filterZone', zones, 'Todas');
+            fillSelect('filterDriver', drivers, 'Todos');
+            fillSelect('filterRoute', routes, 'Todas');
+
+            // Meses de más reciente a más antiguo, con nombre legible (p. ej. "Sept 2026")
+            document.getElementById('filterMonth').innerHTML = '<option value="">Todos</option>' +
+                [...months].sort().reverse().map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+
+            if (minDate !== null) {
+                document.getElementById('filterDateStart').value = minDate;
+                document.getElementById('filterDateEnd').value = maxDate;
+            }
+        }
+
+        function applyFilters() {
+            const zone = document.getElementById('filterZone').value;
+            const driver = document.getElementById('filterDriver').value;
+            const route = document.getElementById('filterRoute').value;
+            const dateStart = document.getElementById('filterDateStart').value;
+            const dateEnd = document.getElementById('filterDateEnd').value;
+            const month = document.getElementById('filterMonth').value;
+
+            // Fechas en formato YYYY-MM-DD: la comparación de strings equivale a la cronológica
+            filteredData = rawData.filter(d =>
+                (!month || d.month === month) &&
+                (!zone || d.zone === zone) &&
+                (!driver || d.driver === driver) &&
+                (!route || d.route === route) &&
+                (!d.valid || ((!dateStart || d.date >= dateStart) && (!dateEnd || d.date <= dateEnd)))
+            );
+
+            currentPage = 1;
+            updateDashboard();
+        }
+
+        // ---------- Agregación (una sola pasada sobre los datos) ----------
+
+        function computeAggregates(data) {
+            const t = { n: data.length, adh: 0, compl: 0, totalVisits: 0, visited: 0, unvisited: 0, notAdhered: 0, unplannedStops: 0, journeyTime: 0, critical: 0 };
+            const byDate = new Map(), byZone = new Map(), byMonth = new Map(), byRoute = new Map();
+
+            for (const d of data) {
+                const compl = d.compliance * 100;
+                t.adh += d.adherence;
+                t.compl += compl;
+                t.totalVisits += d.totalVisits;
+                t.visited += d.visited;
+                t.unvisited += d.unvisited;
+                t.notAdhered += d.notAdhered;
+                t.unplannedStops += d.unplannedStops;
+                t.journeyTime += d.journeyTime;
+                if (d.adherence < 20) t.critical++;
+
+                let x = byDate.get(d.date);
+                if (!x) byDate.set(d.date, x = { adh: 0, compl: 0, count: 0, visited: 0, unvisited: 0 });
+                x.adh += d.adherence; x.compl += compl; x.count++; x.visited += d.visited; x.unvisited += d.unvisited;
+
+                let z = byZone.get(d.zone);
+                if (!z) byZone.set(d.zone, z = { adh: 0, count: 0, dowSum: [0, 0, 0, 0, 0, 0, 0], dowCount: [0, 0, 0, 0, 0, 0, 0] });
+                z.adh += d.adherence; z.count++;
+                if (d.dow >= 0) { z.dowSum[d.dow] += d.adherence; z.dowCount[d.dow]++; }
+
+                if (d.month) {
+                    let m = byMonth.get(d.month);
+                    if (!m) byMonth.set(d.month, m = { adh: 0, compl: 0, count: 0, zones: new Map() });
+                    m.adh += d.adherence; m.compl += compl; m.count++;
+                    let mz = m.zones.get(d.zone);
+                    if (!mz) m.zones.set(d.zone, mz = { adh: 0, count: 0 });
+                    mz.adh += d.adherence; mz.count++;
+                }
+
+                let r = byRoute.get(d.route);
+                if (!r) byRoute.set(d.route, r = { adh: 0, count: 0, driver: d.driver, notAdhered: 0, unplannedStops: 0 });
+                r.adh += d.adherence; r.count++; r.notAdhered += d.notAdhered; r.unplannedStops += d.unplannedStops;
+            }
+
+            return { t, byDate, byZone, byMonth, byRoute };
+        }
+
+        function updateDashboard() {
+            const agg = computeAggregates(filteredData);
+            updateKPIs(agg);
+            generateInsights(agg);
+            updateCharts(agg);
+            renderTable();
+        }
+
+        const numberFormatter = new Intl.NumberFormat('es-DO');
+        function formatPercent(val) { return isNaN(val) ? '0%' : val.toFixed(1) + '%'; }
+        function formatNum(val) { return numberFormatter.format(Math.round(val)); }
+
+        function updateKPIs({ t }) {
+            if (t.n === 0) {
+                document.querySelectorAll('.kpi-value').forEach(el => el.innerText = '0');
+                document.getElementById('gaugeValue').innerText = '0%';
+                return;
+            }
+
+            const avgAdherence = t.adh / t.n;
+            const avgCompliance = t.compl / t.n;
+            const avgTimeSecs = t.journeyTime / t.n;
+
+            document.getElementById('kpiAdherencia').innerText = formatPercent(avgAdherence);
+            document.getElementById('kpiCumplimiento').innerText = formatPercent(avgCompliance);
+            document.getElementById('kpiRutas').innerText = formatNum(t.n);
+            document.getElementById('kpiVisitasTotales').innerText = formatNum(t.totalVisits);
+            document.getElementById('kpiVisitasEjecutadas').innerText = formatNum(t.visited);
+            document.getElementById('kpiVisitasOmitidas').innerText = formatNum(t.unvisited);
+            document.getElementById('kpiFueraSecuencia').innerText = formatNum(t.notAdhered);
+            document.getElementById('kpiParadasNoPlan').innerText = formatNum(t.unplannedStops);
+
+            const hours = Math.floor(avgTimeSecs / 3600) || 0;
+            const mins = Math.floor((avgTimeSecs % 3600) / 60) || 0;
+            document.getElementById('kpiTiempoPromedio').innerText = `${hours}h ${mins}m`;
+
+            document.getElementById('gaugeValue').innerText = formatPercent(avgAdherence);
+            document.getElementById('gaugeValue').style.color = getStatusColor(avgAdherence);
+        }
+
+        function getStatusColor(val) {
+            if (val >= 85) return '#10B981';
+            if (val >= 60) return '#F59E0B';
+            return '#EF4444';
+        }
+
+        function generateInsights({ t, byZone }) {
+            const list = document.getElementById('insightsList');
+
+            if (t.n === 0) {
+                list.innerHTML = '<li>No hay datos suficientes para generar insights.</li>';
+                return;
+            }
+
+            const items = [];
+            let topZone = null, bottomZone = null;
+            let maxA = -1, minA = 101;
+            for (const [z, v] of byZone) {
+                const a = v.adh / v.count;
+                if (a > maxA) { maxA = a; topZone = z; }
+                if (a < minA) { minA = a; bottomZone = z; }
+            }
+
+            if (topZone && topZone !== bottomZone) {
+                items.push(`<li>La zona <strong>${escapeHtml(topZone)}</strong> lidera en adherencia con un <span class="text-success font-bold">${formatPercent(maxA)}</span>.</li>`);
+                items.push(`<li>Atención en <strong>${escapeHtml(bottomZone)}</strong>, su adherencia promedio es de <span class="text-danger font-bold">${formatPercent(minA)}</span>.</li>`);
+            }
+
+            if (t.unplannedStops > 0) {
+                items.push(`<li>Se han detectado <strong>${formatNum(t.unplannedStops)}</strong> paradas no planificadas en el período seleccionado.</li>`);
+            }
+
+            if (t.critical > 0) {
+                items.push(`<li>Existen <strong>${formatNum(t.critical)}</strong> rutas ejecutadas con adherencia crítica (&lt; 20%).</li>`);
+            }
+
+            const totalComp = t.compl / t.n / 100;
+            const totalAdh = t.adh / t.n / 100;
+            if (totalComp > 0.9 && totalAdh < 0.6) {
+                items.push(`<li>Se observa alto cumplimiento de visitas, pero <strong>baja adherencia a la secuencia</strong> planificada.</li>`);
+            }
+
+            list.innerHTML = items.join('');
+        }
+
+        // ---------- Gráficos ----------
+
+        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        Chart.defaults.color = '#64748B';
+
+        // Crea el gráfico la primera vez; después solo reemplaza los datos (sin destruir ni animar)
+        function upsertChart(id, config) {
+            const existing = Chart.getChart(id);
+            if (existing) {
+                existing.data = config.data;
+                existing.update('none');
+                return;
+            }
+            new Chart(document.getElementById(id), config);
+        }
+
+        function updateCharts(agg) {
+            renderGaugeChart(agg);
+            renderTendencyChart(agg);
+            renderMensualChart(agg);
+            renderUnplannedStopsChart(agg);
+            renderFueraSecuenciaChart(agg);
+            renderComparativeChart(agg);
+            renderDonutChart(agg);
+            renderRankings(agg);
+            renderHeatmap(agg);
+        }
+
+        function renderGaugeChart({ t }) {
+            const avg = t.n > 0 ? t.adh / t.n : 0;
+            upsertChart('gaugeAdherencia', {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [avg, 100 - avg],
+                        backgroundColor: [getStatusColor(avg), '#e2e8f0'],
+                        borderWidth: 0,
+                        circumference: 180,
+                        rotation: 270
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '80%',
+                    plugins: { tooltip: { enabled: false }, legend: { display: false } }
+                }
+            });
+        }
+
+        function renderTendencyChart({ byDate }) {
+            const labels = [...byDate.keys()].sort();
+            const dataAdh = labels.map(l => byDate.get(l).adh / byDate.get(l).count);
+            const dataComp = labels.map(l => byDate.get(l).compl / byDate.get(l).count);
+            const pointRadius = labels.length > 60 ? 0 : 3;
+
+            upsertChart('chartTendencia', {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Adherencia %', data: dataAdh, borderColor: '#2563EB', backgroundColor: 'rgba(37, 99, 235, 0.1)', borderWidth: 3, tension: 0.3, fill: true, pointRadius },
+                        { label: 'Cumplimiento %', data: dataComp, borderColor: '#10B981', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 5], tension: 0.3, pointRadius }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: { y: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 15 } } },
+                    plugins: { legend: { position: 'top' } }
+                }
+            });
+        }
+
+
+        // ---------- Sección: Adherencia Mensual ----------
+
+        const META_ADHERENCIA = 85;
+        const ZONE_COLORS = ['#2563EB', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16', '#F97316', '#64748B'];
+        let monthMode = 'global';
+        let lastAgg = null;
+
+        function monthLabel(ym) {
+            const [y, m] = ym.split('-').map(Number);
+            const s = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('es-DO', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+            return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
+        // Escribe el valor encima de cada barra de los datasets marcados con showValues
+        const barValueLabels = {
+            id: 'barValueLabels',
+            afterDatasetsDraw(chart) {
+                const { ctx } = chart;
+                chart.data.datasets.forEach((ds, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    if (!ds.showValues || meta.hidden || meta.data.length > 18) return;
+                    ctx.save();
+                    ctx.font = "600 11px 'Segoe UI', Tahoma, sans-serif";
+                    ctx.fillStyle = '#334155';
+                    ctx.textAlign = 'center';
+                    meta.data.forEach((el, j) => {
+                        const v = ds.data[j];
+                        if (v != null) ctx.fillText(v.toFixed(1) + '%', el.x, el.y - 6);
+                    });
+                    ctx.restore();
+                });
+            }
+        };
+
+        document.querySelectorAll('.month-mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                monthMode = btn.dataset.monthMode;
+                if (lastAgg) renderMensualChart(lastAgg);
+            });
+        });
+
+        function renderMensualChart(agg) {
+            lastAgg = agg;
+            const { byMonth } = agg;
+            const months = [...byMonth.keys()].sort();
+            const labels = months.map(monthLabel);
+            const adh = months.map(m => byMonth.get(m).adh / byMonth.get(m).count);
+            const compl = months.map(m => byMonth.get(m).compl / byMonth.get(m).count);
+            const meta = { type: 'line', label: `Meta ${META_ADHERENCIA}%`, data: months.map(() => META_ADHERENCIA), borderColor: '#94a3b8', borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, fill: false, order: 0 };
+
+            document.querySelectorAll('.month-mode-btn').forEach(b => {
+                const active = b.dataset.monthMode === monthMode;
+                b.classList.toggle('bg-white', active);
+                b.classList.toggle('shadow-sm', active);
+                b.classList.toggle('text-primary', active);
+                b.classList.toggle('font-semibold', active);
+                b.classList.toggle('text-secondary', !active);
+            });
+
+            let datasets;
+            if (monthMode === 'zona') {
+                const zones = [...agg.byZone.keys()].sort();
+                datasets = zones.map((z, i) => {
+                    const color = ZONE_COLORS[i % ZONE_COLORS.length];
+                    return {
+                        type: 'line', label: z,
+                        data: months.map(m => { const v = byMonth.get(m).zones.get(z); return v ? v.adh / v.count : null; }),
+                        borderColor: color, backgroundColor: color, borderWidth: 2, tension: 0.3, pointRadius: 3, spanGaps: true
+                    };
+                });
+                datasets.push(meta);
+            } else {
+                datasets = [
+                    { type: 'bar', label: 'Adherencia %', data: adh, backgroundColor: adh.map(getStatusColor), borderRadius: 6, maxBarThickness: 56, showValues: true, order: 2 },
+                    { type: 'line', label: 'Cumplimiento %', data: compl, borderColor: '#10B981', backgroundColor: '#10B981', borderWidth: 2, tension: 0.3, pointRadius: 3, order: 1 },
+                    meta
+                ];
+            }
+
+            // Se recrea (en vez de solo actualizar datos) porque el tipo de series cambia entre modos
+            const existing = Chart.getChart('chartMensual');
+            if (existing) existing.destroy();
+            new Chart(document.getElementById('chartMensual'), {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    interaction: { mode: 'index', intersect: false },
+                    layout: { padding: { top: 18 } },
+                    scales: { y: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' }, ticks: { callback: v => v + '%' } }, x: { grid: { display: false } } },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, usePointStyle: true } },
+                        tooltip: {
+                            filter: item => item.parsed.y != null,
+                            callbacks: { label: c => `${c.dataset.label.replace(' %', '')}: ${c.parsed.y.toFixed(1)}%` }
+                        }
+                    }
+                },
+                plugins: [barValueLabels]
+            });
+
+            renderTablaMensual(months, adh, compl, byMonth);
+        }
+
+        function renderTablaMensual(months, adh, compl, byMonth) {
+            const body = document.getElementById('tablaMensualBody');
+            if (months.length === 0) {
+                body.innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-center text-slate-400">Sin datos con fecha</td></tr>';
+                return;
+            }
+            // Mes más reciente primero
+            const rows = [];
+            for (let i = months.length - 1; i >= 0; i--) {
+                let varHtml = '<span class="text-slate-300">—</span>';
+                if (i > 0) {
+                    const diff = adh[i] - adh[i - 1];
+                    const color = diff >= 0 ? '#10B981' : '#EF4444';
+                    varHtml = `<span style="color:${color}" class="font-semibold">${diff >= 0 ? '▲' : '▼'} ${Math.abs(diff).toFixed(1)} pp</span>`;
+                }
+                rows.push(`<tr class="hover:bg-slate-50">
+                    <td class="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">${monthLabel(months[i])}</td>
+                    <td class="px-3 py-2 text-right">${formatNum(byMonth.get(months[i]).count)}</td>
+                    <td class="px-3 py-2 text-right font-bold" style="color:${getStatusColor(adh[i])}">${formatPercent(adh[i])}</td>
+                    <td class="px-3 py-2 text-right">${formatPercent(compl[i])}</td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap">${varHtml}</td>
+                </tr>`);
+            }
+            body.innerHTML = rows.join('');
+        }
+
+        function topRoutesBy(byRoute, field) {
+            return [...byRoute.entries()]
+                .map(([route, v]) => ({ route, value: v[field] }))
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 10);
+        }
+
+        function horizontalBarConfig(sorted, label, color) {
+            return {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(d => d.route),
+                    datasets: [{ label: label, data: sorted.map(d => d.value), backgroundColor: color, borderRadius: 4 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    scales: {
+                        x: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                        y: { grid: { display: false } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            };
+        }
+
+        function renderFueraSecuenciaChart({ byRoute }) {
+            upsertChart('chartFueraSecuencia', horizontalBarConfig(topRoutesBy(byRoute, 'notAdhered'), 'Fuera de Secuencia', '#F59E0B'));
+        }
+
+        function renderUnplannedStopsChart({ byRoute }) {
+            upsertChart('chartParadas', horizontalBarConfig(topRoutesBy(byRoute, 'unplannedStops'), 'Paradas No Planificadas', '#EF4444'));
+        }
+
+        function renderComparativeChart({ byDate }) {
+            const labels = [...byDate.keys()].sort();
+
+            upsertChart('chartComparativo', {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Visitados', data: labels.map(l => byDate.get(l).visited), backgroundColor: '#10B981', borderRadius: 4 },
+                        { label: 'Omitidos', data: labels.map(l => byDate.get(l).unvisited), backgroundColor: '#EF4444', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 15 } }, y: { stacked: true, grid: { color: '#f1f5f9' } } },
+                    plugins: { legend: { position: 'top' } }
+                }
+            });
+        }
+
+        function renderDonutChart({ t }) {
+            upsertChart('chartDonut', {
+                type: 'doughnut',
+                data: {
+                    labels: ['Visitados', 'Omitidos/No Visitados'],
+                    datasets: [{
+                        data: [t.visited, t.unvisited],
+                        backgroundColor: ['#10B981', '#EF4444'],
+                        borderWidth: 2, borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '60%',
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+
+        function renderRankings({ byRoute }) {
+            const routesArr = [...byRoute.entries()].map(([name, v]) => ({
+                name,
+                driver: v.driver,
+                adh: v.adh / v.count
+            })).sort((a, b) => b.adh - a.adh);
+
+            const top = routesArr.slice(0, 10);
+            const bottom = routesArr.slice(-10).reverse();
+
+            const buildHTML = (arr) => arr.map((item, i) => `
+                <div class="flex justify-between items-center py-2 border-b border-slate-100 last:border-0">
+                    <div class="flex gap-3 items-center w-3/4">
+                        <span class="text-xs font-bold w-4 text-slate-400">${i + 1}.</span>
+                        <div class="truncate">
+                            <p class="text-sm font-semibold text-slate-700 truncate" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</p>
+                            <p class="text-xs text-slate-400 truncate" title="${escapeHtml(item.driver)}">${escapeHtml(item.driver)}</p>
+                        </div>
+                    </div>
+                    <span class="text-sm font-bold" style="color: ${getStatusColor(item.adh)}">${formatPercent(item.adh)}</span>
+                </div>
+            `).join('');
+
+            const empty = '<p class="text-sm text-center text-slate-400 mt-4">Sin datos</p>';
+            document.getElementById('top10List').innerHTML = top.length ? buildHTML(top) : empty;
+            document.getElementById('bottom10List').innerHTML = bottom.length ? buildHTML(bottom) : empty;
+        }
+
+        function renderHeatmap({ byZone }) {
+            const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            const zones = [...byZone.keys()].sort();
+
+            document.getElementById('heatmapHead').innerHTML = '<th class="p-2 text-left font-semibold">Zona</th>' + days.map(d => `<th class="p-2 font-semibold text-center">${d.substring(0, 3)}</th>`).join('');
+
+            const rows = zones.map(z => {
+                const { dowSum, dowCount } = byZone.get(z);
+                let tr = `<tr class="border-b border-slate-100"><td class="p-2 text-sm font-medium text-slate-700 whitespace-nowrap">${escapeHtml(z)}</td>`;
+                for (let i = 0; i < 7; i++) {
+                    if (dowCount[i] === 0) {
+                        tr += `<td class="p-1"><div class="heatmap-cell bg-slate-100 text-slate-400">-</div></td>`;
+                    } else {
+                        const avg = dowSum[i] / dowCount[i];
+                        tr += `<td class="p-1"><div class="heatmap-cell" style="background-color:${getStatusColor(avg)}">${Math.round(avg)}%</div></td>`;
+                    }
+                }
+                return tr + '</tr>';
+            });
+            document.getElementById('heatmapBody').innerHTML = rows.join('');
+        }
+
+        // ---------- Tabla ----------
+
+        // Filtra y ordena (solo cuando cambian filtros, búsqueda u orden), luego pinta la página
+        function renderTable() {
+            const search = document.getElementById('tableSearch').value.toLowerCase().trim();
+            const data = search ? filteredData.filter(d => d.search.includes(search)) : filteredData.slice();
+
+            const field = sortFieldMap[currentSort.col] || currentSort.col;
+            const dir = currentSort.dir === 'asc' ? 1 : -1;
+            data.sort((a, b) => {
+                let valA = a[field], valB = b[field];
+                if (field === 'ts') {
+                    valA = a.valid ? valA : -Infinity;
+                    valB = b.valid ? valB : -Infinity;
+                }
+                if (valA < valB) return -dir;
+                if (valA > valB) return dir;
+                return 0;
+            });
+
+            tableData = data;
+            const maxPage = Math.max(1, Math.ceil(data.length / rowsPerPage));
+            if (currentPage > maxPage) currentPage = maxPage;
+            renderTablePage();
+        }
+
+        function renderTablePage() {
+            const total = tableData.length;
+            const start = (currentPage - 1) * rowsPerPage;
+            const end = Math.min(start + rowsPerPage, total);
+
+            const html = [];
+            for (let i = start; i < end; i++) {
+                const row = tableData[i];
+                const comp = row.compliance * 100;
+                html.push(`<tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 whitespace-nowrap">${escapeHtml(row.date)}</td>
+                    <td class="px-4 py-3">${escapeHtml(row.zone)}</td>
+                    <td class="px-4 py-3 font-medium text-slate-700">${escapeHtml(row.route)}</td>
+                    <td class="px-4 py-3">${escapeHtml(row.driver)}</td>
+                    <td class="px-4 py-3 text-right">${row.visited} / ${row.totalVisits}</td>
+                    <td class="px-4 py-3 text-right">
+                        <span class="px-2 py-1 rounded text-xs font-bold text-white" style="background-color: ${getStatusColor(row.adherence)}">${formatPercent(row.adherence)}</span>
+                    </td>
+                    <td class="px-4 py-3 text-right font-medium" style="color: ${comp >= 90 ? '#10B981' : (comp >= 70 ? '#F59E0B' : '#EF4444')}">${formatPercent(comp)}</td>
+                    <td class="px-4 py-3 text-right font-medium text-warning">${row.notAdhered}</td>
+                    <td class="px-4 py-3 text-right font-medium text-danger">${row.unplannedStops}</td>
+                </tr>`);
+            }
+            document.getElementById('tableBody').innerHTML = html.join('');
+
+            const maxPage = Math.ceil(total / rowsPerPage) || 1;
+            document.getElementById('tableInfo').innerText = total
+                ? `Mostrando ${start + 1} a ${end} de ${formatNum(total)} registros`
+                : 'Mostrando 0 registros';
+            document.getElementById('pageInfo').innerText = `Página ${currentPage} de ${maxPage}`;
+            document.getElementById('btnPrevPage').disabled = currentPage === 1;
+            document.getElementById('btnNextPage').disabled = currentPage >= maxPage;
+        }
+    </script>
+</body>
+</html>
